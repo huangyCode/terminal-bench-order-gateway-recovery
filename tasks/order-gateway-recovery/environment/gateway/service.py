@@ -24,6 +24,12 @@ def main() -> int:
                 if op == "submit":
                     gateway.submit(command["cl_ord_id"], command["qty"])
                     respond({"ok": True})
+                elif op == "replace":
+                    gateway.replace(command["order_id"], command["request_id"], command["qty"])
+                    respond({"ok": True})
+                elif op == "cancel":
+                    gateway.cancel(command["order_id"], command["request_id"])
+                    respond({"ok": True})
                 elif op == "outbound":
                     respond({"messages": gateway.outbound()})
                 elif op == "receive":

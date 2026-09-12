@@ -28,10 +28,24 @@ class Store:
               applied INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS executions(exec_id TEXT PRIMARY KEY);
+            CREATE TABLE IF NOT EXISTS requests(
+              request_id TEXT PRIMARY KEY,
+              order_id TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              previous_request_id TEXT,
+              qty INTEGER NOT NULL,
+              seq INTEGER NOT NULL UNIQUE,
+              acknowledged INTEGER NOT NULL DEFAULT 0
+            );
             INSERT OR IGNORE INTO meta(key, value) VALUES ('next_in_seq', 1);
             INSERT OR IGNORE INTO meta(key, value) VALUES ('next_out_seq', 1);
             """
         )
+        columns = {row[1] for row in self.db.execute("PRAGMA table_info(orders)")}
+        if "current_request_id" not in columns:
+            self.db.execute("ALTER TABLE orders ADD COLUMN current_request_id TEXT")
+        if "desired_request_id" not in columns:
+            self.db.execute("ALTER TABLE orders ADD COLUMN desired_request_id TEXT")
         self.db.commit()
 
     def next_in_seq(self) -> int:

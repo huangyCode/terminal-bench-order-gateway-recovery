@@ -46,3 +46,13 @@ The vertical prototype validates the process-isolated verifier and crash/restart
 The venue was configured to commit one NEW request and close the connection before writing its HTTP response. The first gateway `sync` returned `caught_up=false` while retaining the identical durable outbound message. A second `sync` read the venue session history, applied the recorded acknowledgement, and returned `caught_up=true`; the local outbox became empty and the venue contained one business order effect.
 
 This is an implementation checkpoint, not a required model trial. Standard and adversarial trials remain pending until the complete request-chain verifier is frozen.
+
+## Validation V2b — durable NEW/REPLACE/CANCEL chain
+
+- Date: 2026-09-13
+- Static checks: all 22 current CI checks passed
+- Oracle: `jobs/2026-09-13__01-41-08`, reward 1.0, no exception
+- Nop: `jobs/2026-09-13__01-41-38`, reward 0.0, no exception
+- Verifier boundary: a private venue process is started inside the separate verifier container and is not reachable as an artifact or control surface from the agent container
+
+The scenario durably queues a NEW followed by REPLACE and CANCEL, kills the gateway before the latter requests are synchronized, restarts it against the same independent venue, and compares normalized local state with the venue's authoritative ledger. Two earlier Oracle attempts (`01-38-52`, `01-39-48`) exposed test-environment assumptions during development and are not trial results: the first encountered a stale public sidecar session; the second proved that a separate verifier intentionally cannot resolve the agent-side Compose hostname. Both were corrected by moving the authoritative test peer into the verifier boundary.
