@@ -31,3 +31,18 @@ The sole failed verifier case rejected a `.pyc` file under the submitted gateway
 
 The vertical prototype validates the process-isolated verifier and crash/restart testing approach, but its small synchronous JSON-RPC surface is not TB3-level. The next revision must add genuine system depth—an independent network peer, request-chain semantics, outbound replay/gap-fill behavior, and crash points spanning transport and business acknowledgement—without manufacturing difficulty through undocumented file restrictions.
 
+## Validation V2a — independent venue and ambiguous commit
+
+- Date: 2026-09-13
+- Harness: Harbor 0.18.0, Docker backend
+- Scope: first networked increment (`NEW` plus session reconciliation)
+- Static checks: all 22 checks from `.github/workflows/static-checks.yml` passed
+- Docker build: gateway and venue images passed
+- Oracle job: `jobs/2026-09-13__01-35-20`, reward 1.0, no exception
+- Nop job: `jobs/2026-09-13__01-35-48`, reward 0.0, no exception
+
+### Deterministic fault result
+
+The venue was configured to commit one NEW request and close the connection before writing its HTTP response. The first gateway `sync` returned `caught_up=false` while retaining the identical durable outbound message. A second `sync` read the venue session history, applied the recorded acknowledgement, and returned `caught_up=true`; the local outbox became empty and the venue contained one business order effect.
+
+This is an implementation checkpoint, not a required model trial. Standard and adversarial trials remain pending until the complete request-chain verifier is frozen.

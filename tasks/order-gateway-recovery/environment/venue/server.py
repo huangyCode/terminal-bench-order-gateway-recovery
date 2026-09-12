@@ -83,7 +83,9 @@ def apply_request(db, message):
     if type(qty) is not int or qty < 0 or type(message["poss_dup"]) is not bool:
         raise ValueError("invalid request value")
 
-    encoded = canonical(message)
+    identity_body = dict(message)
+    identity_body["poss_dup"] = False
+    encoded = canonical(identity_body)
     prior = db.execute("SELECT body,response FROM requests WHERE request_id=?", (request_id,)).fetchone()
     if prior is not None:
         if prior["body"] != encoded:
@@ -218,4 +220,3 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
-

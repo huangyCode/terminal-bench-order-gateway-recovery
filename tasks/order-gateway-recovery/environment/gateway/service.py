@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import sys
 
 from .core import Gateway
@@ -12,8 +13,9 @@ def respond(value: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", required=True)
+    parser.add_argument("--venue-url", default=os.environ.get("VENUE_URL"))
     args = parser.parse_args()
-    gateway = Gateway(args.db)
+    gateway = Gateway(args.db, args.venue_url)
     try:
         for raw in sys.stdin:
             try:
@@ -29,6 +31,8 @@ def main() -> int:
                     respond({"ok": True})
                 elif op == "state":
                     respond({"orders": gateway.state()})
+                elif op == "sync":
+                    respond({"ok": True, "caught_up": gateway.sync()})
                 elif op == "stop":
                     respond({"ok": True})
                     break
@@ -43,4 +47,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

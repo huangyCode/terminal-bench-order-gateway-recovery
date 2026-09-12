@@ -2,13 +2,15 @@ import json
 import os
 
 from .store import Store, encode
+from .transport import RetryableVenueError, VenueClient
 
 
 class Gateway:
     """Intentionally incomplete implementation for the task authoring prototype."""
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, venue_url: str | None = None):
         self.store = Store(db_path)
+        self.venue = VenueClient(venue_url) if venue_url else None
         self.seen_this_process: set[str] = set()
         self.boot_id = str(os.getpid())
         # BUG: pending business identities are changed after every restart.
@@ -112,6 +114,46 @@ class Gateway:
             }
             for row in rows
         ]
+
+    def sync(self) -> bool:
+        if self.venue is None:
+            raise ValueError("venue URL is required for sync")
+        try:
+            session = self.venue.session()
+            for response in session["responses"]:
+                self.receive({
+                    "seq": response["venue_seq"],
+                    "msg_type": "ACK",
+                    "exec_id": response["exec_id"],
+                    "cl_ord_id": response["order_id"],
+                    "last_qty": 0,
+                })
+            expected = int(session["next_client_seq"])
+            for message in self.outbound():
+                if int(message["seq"]) < expected:
+                    continue
+                if int(message["seq"]) > expected:
+                    return False
+                response = self.venue.request({
+                    "client_seq": message["seq"],
+                    "request_id": message["cl_ord_id"],
+                    "type": "NEW",
+                    "order_id": message["cl_ord_id"],
+                    "previous_request_id": None,
+                    "qty": message["qty"],
+                    "poss_dup": False,
+                })
+                self.receive({
+                    "seq": response["venue_seq"],
+                    "msg_type": "ACK",
+                    "exec_id": response["exec_id"],
+                    "cl_ord_id": response["order_id"],
+                    "last_qty": 0,
+                })
+                expected += 1
+            return not self.outbound()
+        except RetryableVenueError:
+            return False
 
     def close(self) -> None:
         self.store.close()
