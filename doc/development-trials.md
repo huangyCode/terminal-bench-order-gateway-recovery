@@ -1,0 +1,33 @@
+# Development trial log
+
+## Trial D1 — Codex on the vertical prototype
+
+- Date: 2026-09-13
+- Task revision: uncommitted vertical prototype on `task/order-gateway-recovery`
+- Harness: Harbor 0.18.0, Docker backend
+- Agent: `codex`
+- Model: `openai/gpt-5.6-sol`
+- Reasoning effort: `xhigh`
+- Job: `jobs/2026-09-13__00-34-53`
+- Runtime: 10m 19s
+- Reported reward: 0.0
+- Infrastructure status: valid; no agent/container/API exception
+- Classification: **invalid model failure; functionally solved**
+
+### Evidence
+
+Codex identified the intended durable-session defects, implemented a transactional SQLite inbox/outbox, durable execution-ID deduplication, persistent gap buffering, ordered replay, stable outbound identities, validation, rollback, and deterministic ordering. Seven functional verifier cases passed.
+
+The sole failed verifier case rejected a `.pyc` file under the submitted gateway tree. Codex had created it through the normal engineering action `python3 -m py_compile gateway/*.py`. The instruction neither prohibited bytecode cache files nor required a source-only tree. Therefore the zero reward was caused by an over-restrictive verifier assertion, not a meaningful model failure.
+
+### Corrective action
+
+- Removed the suffix assertion that allowed only `.py` files.
+- Retained symlink rejection and a generous total artifact-size ceiling as anti-abuse safeguards.
+- Do not count this run toward any required standard trial.
+- Treat the prototype as too easy: a frontier agent repaired the complete functional surface in one valid attempt.
+
+### Design implication
+
+The vertical prototype validates the process-isolated verifier and crash/restart testing approach, but its small synchronous JSON-RPC surface is not TB3-level. The next revision must add genuine system depth—an independent network peer, request-chain semantics, outbound replay/gap-fill behavior, and crash points spanning transport and business acknowledgement—without manufacturing difficulty through undocumented file restrictions.
+
