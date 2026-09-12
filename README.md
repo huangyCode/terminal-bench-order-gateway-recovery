@@ -8,7 +8,8 @@ This private repository contains an original Terminal-Bench task developed for a
 - Oracle validation: reward 1.0
 - Nop validation: reward 0.0
 - First Codex development trial: functionally solved the prototype; its reported zero was traced to and corrected as a verifier false negative
-- v2 networked task design: in progress
+- v2 venue sidecar: implemented and smoke-tested, including deterministic commit-before-response disconnects
+- v2 gateway network recovery: in progress
 
 The task is under `tasks/order-gateway-recovery/`. Design notes and experiment records are under `doc/`.
 
@@ -19,4 +20,3 @@ The task is developed and tested against `harbor-framework/terminal-bench` commi
 ## Security
 
 No API keys, OAuth tokens, or model credentials belong in this repository.
-
