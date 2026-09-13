@@ -93,3 +93,18 @@ Do not count or present D2 as a required failure. The next revision must exercis
 - Nop: `jobs/2026-09-13__10-20-14`, reward 0.0, zero exceptions
 
 The verifier now distinguishes two outbound recovery decisions. A locally acknowledged sequence must be represented as a GAP_FILL during venue-requested recovery, while a venue-accepted request whose response was hidden from the recovering gateway must be replayed byte-for-semantics with its original sequence and identity. A separate pre-commit disconnect requires the gateway to have durably recorded the send attempt before I/O, so its post-restart retry sets `poss_dup=true` even though the venue has no business effect yet.
+
+## Trial D3 — Codex on outbound recovery V3a
+
+- Date: 2026-09-13
+- Task revision: V3a (`39d80fb` in the submission repository)
+- Agent/model: Codex, `openai/gpt-5.6-sol`, reasoning `xhigh`
+- Valid job: `jobs/codex-v3a-calibration-retry`
+- Runtime: 27m 49s
+- Reward: 1.0
+- Exceptions: 0
+- Classification: valid legitimate pass; development calibration only
+
+The preceding job `jobs/codex-v3a-calibration` produced zero valid trials because NVM/npm installation exceeded Harbor's 360-second agent-setup timeout. It is an infrastructure error and is not counted. The retry changed only the local setup-timeout multiplier and then completed normally.
+
+Codex's valid pass shows that explicit outbound replay, gap-fill selection, and durable pre-I/O attempt tracking add meaningful work but still do not meet the required frontier-model failure rate. V3b must add the other half of session recovery: independently sequenced inbound events, durable future-event buffering, missing-range reconciliation, and repeated business executions under new delivery sequence numbers.
