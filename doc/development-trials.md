@@ -84,3 +84,12 @@ Codex implemented durable inbound normalization, transactional replay, stable re
 ### Design implication
 
 Do not count or present D2 as a required failure. The next revision must exercise recovery decisions that cannot be handled by simply replaying the venue's full response history: explicit venue-requested outbound resend ranges, gap fills for already accepted sequence slots, and inbound replay where the same business execution arrives under a new session sequence. These extend the same session-recovery problem rather than adding unrelated surface area.
+
+## Validation V3a — resend ranges and durable send attempts
+
+- Date: 2026-09-13
+- Static checks: all 22 current CI checks passed
+- Oracle: `jobs/2026-09-13__10-19-16`, reward 1.0, zero exceptions
+- Nop: `jobs/2026-09-13__10-20-14`, reward 0.0, zero exceptions
+
+The verifier now distinguishes two outbound recovery decisions. A locally acknowledged sequence must be represented as a GAP_FILL during venue-requested recovery, while a venue-accepted request whose response was hidden from the recovering gateway must be replayed byte-for-semantics with its original sequence and identity. A separate pre-commit disconnect requires the gateway to have durably recorded the send attempt before I/O, so its post-restart retry sets `poss_dup=true` even though the venue has no business effect yet.

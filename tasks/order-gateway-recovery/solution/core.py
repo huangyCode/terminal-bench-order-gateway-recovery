@@ -181,6 +181,25 @@ class Gateway:
             session = self.venue.session()
             for response in session["responses"]:
                 self._accept_venue_response(response)
+            if "resend_from" in session:
+                resend_from = int(session["resend_from"])
+                recovery_rows = self.store.db.execute(
+                    "SELECT * FROM requests WHERE seq>=? AND seq<? ORDER BY seq",
+                    (resend_from, int(session["next_client_seq"])),
+                ).fetchall()
+                expected_recovery = list(range(resend_from, int(session["next_client_seq"])))
+                if [int(row["seq"]) for row in recovery_rows] != expected_recovery:
+                    return False
+                for row in recovery_rows:
+                    if int(row["acknowledged"]):
+                        self.venue.recover({
+                            "action": "GAP_FILL", "client_seq": int(row["seq"]),
+                        })
+                    else:
+                        response = self.venue.recover({
+                            "action": "REPLAY", "request": self._wire_request(row, True),
+                        })
+                        self._accept_venue_response(response)
             expected = int(session["next_client_seq"])
             rows = self.store.db.execute(
                 "SELECT * FROM requests WHERE acknowledged=0 ORDER BY seq"
@@ -190,15 +209,13 @@ class Gateway:
                     continue
                 if int(row["seq"]) > expected:
                     return False
-                response = self.venue.request({
-                    "client_seq": int(row["seq"]),
-                    "request_id": row["request_id"],
-                    "type": row["kind"],
-                    "order_id": row["order_id"],
-                    "previous_request_id": row["previous_request_id"],
-                    "qty": int(row["qty"]),
-                    "poss_dup": False,
-                })
+                poss_dup = bool(row["send_attempted"])
+                with self.store.db:
+                    self.store.db.execute(
+                        "UPDATE requests SET send_attempted=1 WHERE request_id=?",
+                        (row["request_id"],),
+                    )
+                response = self.venue.request(self._wire_request(row, poss_dup))
                 self._accept_venue_response(response)
                 expected += 1
             pending = self.store.db.execute(
@@ -207,6 +224,18 @@ class Gateway:
             return pending is None
         except RetryableVenueError:
             return False
+
+    @staticmethod
+    def _wire_request(row, poss_dup: bool) -> dict:
+        return {
+            "client_seq": int(row["seq"]),
+            "request_id": row["request_id"],
+            "type": row["kind"],
+            "order_id": row["order_id"],
+            "previous_request_id": row["previous_request_id"],
+            "qty": int(row["qty"]),
+            "poss_dup": poss_dup,
+        }
 
     def _accept_venue_response(self, response: dict) -> None:
         with self.store.db:

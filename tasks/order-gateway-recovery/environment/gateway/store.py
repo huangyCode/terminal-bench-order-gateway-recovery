@@ -35,7 +35,8 @@ class Store:
               previous_request_id TEXT,
               qty INTEGER NOT NULL,
               seq INTEGER NOT NULL UNIQUE,
-              acknowledged INTEGER NOT NULL DEFAULT 0
+              acknowledged INTEGER NOT NULL DEFAULT 0,
+              send_attempted INTEGER NOT NULL DEFAULT 0
             );
             INSERT OR IGNORE INTO meta(key, value) VALUES ('next_in_seq', 1);
             INSERT OR IGNORE INTO meta(key, value) VALUES ('next_out_seq', 1);
@@ -46,6 +47,11 @@ class Store:
             self.db.execute("ALTER TABLE orders ADD COLUMN current_request_id TEXT")
         if "desired_request_id" not in columns:
             self.db.execute("ALTER TABLE orders ADD COLUMN desired_request_id TEXT")
+        request_columns = {row[1] for row in self.db.execute("PRAGMA table_info(requests)")}
+        if "send_attempted" not in request_columns:
+            self.db.execute(
+                "ALTER TABLE requests ADD COLUMN send_attempted INTEGER NOT NULL DEFAULT 0"
+            )
         self.db.commit()
 
     def next_in_seq(self) -> int:

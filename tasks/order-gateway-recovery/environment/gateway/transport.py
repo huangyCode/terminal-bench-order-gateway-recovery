@@ -50,3 +50,14 @@ class VenueClient:
                 method="POST",
             )
         )
+
+    def recover(self, message: dict):
+        body = json.dumps(message, sort_keys=True, separators=(",", ":")).encode()
+        return self._json(
+            urllib.request.Request(
+                f"{self.base_url}/recover",
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+        )
