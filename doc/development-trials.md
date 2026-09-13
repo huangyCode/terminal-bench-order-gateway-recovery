@@ -135,3 +135,16 @@ The first Oracle attempt (`jobs/2026-09-13__14-50-50`) exposed a reference-solut
 Codex successfully unified outbound request recovery with independently sequenced inbound delivery buffering and stable execution-ID deduplication. The longer trajectory confirms meaningful agentic work, but duration is not a failure signal and the pass means V3b still cannot satisfy the required three failures per model.
 
 The next difficulty increment should introduce a single realistic systems boundary not covered by more sequential schedules: two gateway processes sharing the durable database and racing submit/sync/recovery operations. Correctness then requires transaction-level sequence allocation, bounded SQLite lock handling, and prevention of double-send across concurrent workers while preserving every existing crash invariant.
+
+## Validation V3c — concurrent shared-database workers
+
+- Date: 2026-09-13
+- Static checks: all 22 current CI checks passed
+- Initial Oracle: `jobs/2026-09-13__15-41-30`, reward 1.0
+- Stability discovery: `jobs/2026-09-13__15-42-44`, only 2/5 Oracle passes
+- Corrected stability run: `jobs/2026-09-13__15-46-12`, 5/5 reward 1.0, zero exceptions
+- Nop: `jobs/2026-09-13__15-52-58`, reward 0.0, zero exceptions
+
+Two gateway processes concurrently submit disjoint client intents into one SQLite database, then concurrently synchronize against one venue. The verifier requires 16 unique gap-free client sequences, one venue effect per order, convergence after one worker is killed, and identical normalized state from the survivor.
+
+The first repeated Oracle run exposed a real bootstrap race: a worker could exit while both processes configured SQLite WAL/schema state. The store now retries only SQLite busy/locked bootstrap failures, uses a bounded timeout, and begins mutation transactions with `BEGIN IMMEDIATE`. Five consecutive corrected Oracle trials passed; the earlier 2/5 result is retained as development evidence and is not a model trial.

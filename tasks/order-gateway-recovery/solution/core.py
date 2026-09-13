@@ -14,7 +14,7 @@ class Gateway:
     def submit(self, cl_ord_id: str, qty: int) -> None:
         if not isinstance(cl_ord_id, str) or not cl_ord_id or not isinstance(qty, int) or qty <= 0:
             raise ValueError("invalid order")
-        with self.store.db:
+        with self.store.immediate():
             existing = self.store.db.execute(
                 "SELECT qty FROM orders WHERE cl_ord_id=?", (cl_ord_id,)
             ).fetchone()
@@ -47,7 +47,7 @@ class Gateway:
             raise ValueError("invalid request identity")
         if type(qty) is not int or qty < 0:
             raise ValueError("invalid quantity")
-        with self.store.db:
+        with self.store.immediate():
             duplicate = self.store.db.execute(
                 "SELECT order_id,kind,qty FROM requests WHERE request_id=?", (request_id,)
             ).fetchone()
@@ -93,7 +93,7 @@ class Gateway:
         seq = int(message["seq"])
         if seq <= 0:
             raise ValueError("invalid sequence")
-        with self.store.db:
+        with self.store.immediate():
             self.store.db.execute(
                 "INSERT OR IGNORE INTO inbox(seq, payload, applied) VALUES (?, ?, 0)",
                 (seq, encode(message)),
@@ -217,7 +217,7 @@ class Gateway:
                 if int(row["seq"]) > expected:
                     return False
                 poss_dup = bool(row["send_attempted"])
-                with self.store.db:
+                with self.store.immediate():
                     self.store.db.execute(
                         "UPDATE requests SET send_attempted=1 WHERE request_id=?",
                         (row["request_id"],),
@@ -254,7 +254,7 @@ class Gateway:
         venue_seq = int(response["venue_seq"])
         if venue_seq <= 0:
             raise ValueError("invalid venue sequence")
-        with self.store.db:
+        with self.store.immediate():
             self.store.db.execute(
                 "INSERT OR IGNORE INTO inbox(seq,payload,applied) VALUES (?,?,0)",
                 (venue_seq, encode(response)),

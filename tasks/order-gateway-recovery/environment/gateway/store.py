@@ -1,13 +1,30 @@
 import json
 import sqlite3
+import time
+from contextlib import contextmanager
 
 
 class Store:
     def __init__(self, path: str):
-        self.db = sqlite3.connect(path)
-        self.db.row_factory = sqlite3.Row
+        last_error = None
+        for _ in range(40):
+            self.db = sqlite3.connect(path, timeout=30)
+            self.db.row_factory = sqlite3.Row
+            try:
+                self._bootstrap()
+                return
+            except sqlite3.OperationalError as exc:
+                self.db.close()
+                last_error = exc
+                if "locked" not in str(exc).lower() and "busy" not in str(exc).lower():
+                    raise
+                time.sleep(0.05)
+        raise last_error
+
+    def _bootstrap(self) -> None:
         self.db.executescript(
             """
+            PRAGMA busy_timeout=30000;
             PRAGMA journal_mode=WAL;
             CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS orders(
@@ -53,6 +70,17 @@ class Store:
                 "ALTER TABLE requests ADD COLUMN send_attempted INTEGER NOT NULL DEFAULT 0"
             )
         self.db.commit()
+
+    @contextmanager
+    def immediate(self):
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            yield self.db
+        except Exception:
+            self.db.rollback()
+            raise
+        else:
+            self.db.commit()
 
     def next_in_seq(self) -> int:
         row = self.db.execute("SELECT value FROM meta WHERE key='next_in_seq'").fetchone()

@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -480,3 +481,47 @@ def test_inbound_gap_and_duplicate_business_event_survive_restart(db_path, priva
         "EXEC-1-IN-A", "EXEC-2-IN-B", "EXEC-1-IN-A",
     ]
     final.stop()
+
+
+def test_two_gateway_processes_share_sequences_and_converge(db_path, private_venue):
+    left = GatewayProcess(db_path, private_venue)
+    right = GatewayProcess(db_path, private_venue)
+
+    def submit_batch(gateway, prefix):
+        for number in range(8):
+            gateway.command({
+                "op": "submit",
+                "cl_ord_id": f"{prefix}-{number:02d}",
+                "qty": 20 + number,
+            })
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(submit_batch, left, "LEFT")
+        second = pool.submit(submit_batch, right, "RIGHT")
+        first.result(timeout=15)
+        second.result(timeout=15)
+
+    messages = left.command({"op": "outbound"})["messages"]
+    assert len(messages) == 16
+    assert sorted(message["seq"] for message in messages) == list(range(1, 17))
+
+    for _ in range(20):
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            outcomes = list(pool.map(
+                lambda gateway: gateway.command({"op": "sync"})["caught_up"],
+                (left, right),
+            ))
+        if any(outcomes):
+            break
+    else:
+        pytest.fail("concurrent gateway workers did not converge")
+
+    left.crash()
+    assert right.command({"op": "sync"})["caught_up"] is True
+    orders = right.command({"op": "state"})["orders"]
+    assert len(orders) == 16
+    assert all(order["status"] == "NEW" for order in orders)
+    ledger = venue_json(private_venue, "/ledger")["orders"]
+    assert len(ledger) == 16
+    assert [order["order_id"] for order in ledger] == sorted(order["cl_ord_id"] for order in orders)
+    right.stop()
