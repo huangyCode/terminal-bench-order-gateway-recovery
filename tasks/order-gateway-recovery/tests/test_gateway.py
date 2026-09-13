@@ -24,15 +24,26 @@ class GatewayProcess:
         }
         if venue_url:
             env["VENUE_URL"] = venue_url
+        # Diagnostics go to a file, never a pipe: a daemonised grandchild holding a
+        # stderr pipe open would block every read and wedge the verifier.
+        self._stderr = tempfile.NamedTemporaryFile(
+            prefix="gateway-stderr-", dir="/tmp/gateway-tests", delete=False
+        )
         self.proc = subprocess.Popen(
             ["/usr/sbin/runuser", "-u", "nobody", "--", "python3", "-m", "gateway.service", "--db", db_path],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=self._stderr,
             text=True,
             env=env,
             start_new_session=True,
         )
+
+    def diagnostics(self) -> str:
+        try:
+            return pathlib.Path(self._stderr.name).read_text()[-4000:]
+        except OSError:
+            return ""
 
     def command(self, value: dict, expect_ok: bool = True) -> dict:
         assert self.proc.stdin is not None and self.proc.stdout is not None
@@ -41,7 +52,8 @@ class GatewayProcess:
         ready, _, _ = select.select([self.proc.stdout], [], [], 4.0)
         assert ready, "gateway did not answer within four seconds"
         line = self.proc.stdout.readline()
-        assert line, f"gateway exited with {self.proc.poll()}"
+        if not line:
+            pytest.fail(f"gateway exited with {self.proc.poll()}: {self.diagnostics()}")
         response = json.loads(line)
         if expect_ok:
             assert response.get("ok", True), response
@@ -106,7 +118,7 @@ def private_venue(db_path):
             except OSError:
                 time.sleep(.05)
         else:
-            pytest.fail("private verifier venue did not start")
+            pytest.exit("private verifier venue did not start", returncode=3)
         yield venue_url
     finally:
         if venue.poll() is None:
@@ -173,6 +185,14 @@ def replay_venue_event(url: str, request_id: str) -> dict:
         method="POST",
     )
     return json.loads(urllib.request.urlopen(request, timeout=2).read())
+
+
+def wait_for_committed_barrier(url: str) -> None:
+    for _ in range(100):
+        if venue_json(url, "/admin/barrier-state").get("committed"):
+            return
+        time.sleep(.03)
+    pytest.fail("venue did not reach the committed-response barrier")
 
 
 def test_artifact_is_a_small_regular_python_tree():
@@ -525,3 +545,120 @@ def test_two_gateway_processes_share_sequences_and_converge(db_path, private_ven
     assert len(ledger) == 16
     assert [order["order_id"] for order in ledger] == sorted(order["cl_ord_id"] for order in orders)
     right.stop()
+
+
+def test_killed_sync_owner_hands_ambiguous_session_to_survivor(db_path, private_venue):
+    owner = GatewayProcess(db_path, private_venue)
+    survivor = GatewayProcess(db_path, private_venue)
+    owner.command({"op": "submit", "cl_ord_id": "HANDOFF", "qty": 70})
+    set_venue_fault(private_venue, "block_after_commit_before_response", 1)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        blocked_sync = pool.submit(owner.command, {"op": "sync"})
+        wait_for_committed_barrier(private_venue)
+
+        # A non-coordinator must remain available for durable client intent while
+        # the network owner is suspended after an independently durable commit.
+        survivor.command({
+            "op": "replace", "order_id": "HANDOFF", "request_id": "HANDOFF-R1", "qty": 61,
+        })
+        survivor.command({"op": "submit", "cl_ord_id": "SURVIVOR-NEW", "qty": 23})
+        owner.crash()
+        set_venue_fault(private_venue, "release_block", 1)
+        try:
+            blocked_sync.result(timeout=5)
+        except BaseException:
+            pass
+        else:
+            pytest.fail("killed synchronizer unexpectedly returned a response")
+
+    # Force the successor to prove what it knows for the ambiguous prefix before
+    # it may transmit either intent accepted during the handoff window.
+    require_resend(private_venue, 1, ["HANDOFF"])
+    for _ in range(12):
+        if survivor.command({"op": "sync"})["caught_up"]:
+            break
+    else:
+        pytest.fail("surviving gateway did not recover the killed owner's session")
+
+    assert venue_json(private_venue, "/recovery-log")["actions"] == [
+        {"client_seq": 1, "action": "REPLAY"},
+    ]
+    session = venue_json(private_venue, "/session")
+    assert [item["request_id"] for item in session["responses"]] == [
+        "HANDOFF", "HANDOFF-R1", "SURVIVOR-NEW",
+    ]
+    assert survivor.command({"op": "state"})["orders"] == [
+        {"cl_ord_id": "HANDOFF", "qty": 61, "cum_qty": 0, "leaves_qty": 61, "status": "NEW"},
+        {"cl_ord_id": "SURVIVOR-NEW", "qty": 23, "cum_qty": 0, "leaves_qty": 23, "status": "NEW"},
+    ]
+    assert len(venue_json(private_venue, "/ledger")["orders"]) == 2
+    survivor.stop()
+
+
+def drain_sync(gateway: GatewayProcess, attempts: int, reason: str) -> None:
+    for _ in range(attempts):
+        if gateway.command({"op": "sync"})["caught_up"]:
+            return
+    pytest.fail(reason)
+
+
+def test_backlog_reconciles_within_the_transmission_budget(db_path, private_venue):
+    """A large backlog must be transmitted in batches, not one call per request.
+
+    The documented budget is ceil(N / 50) + 2 transmission calls, so a 200
+    request backlog may use at most six. A gateway that keeps one round trip per
+    request needs two hundred and fails here while still being functionally
+    correct, which is the point: the venue session is a shared resource.
+    """
+    gateway = GatewayProcess(db_path, private_venue)
+    try:
+        for number in range(200):
+            gateway.command({
+                "op": "submit", "cl_ord_id": f"BULK-{number:03d}", "qty": 10 + number % 7,
+            })
+        drain_sync(gateway, 8, "gateway did not reconcile the backlog")
+
+        assert venue_json(private_venue, "/stats")["transmit_calls"] <= 6
+        assert venue_json(private_venue, "/session")["next_client_seq"] == 201
+        assert len(venue_json(private_venue, "/ledger")["orders"]) == 200
+        assert len(gateway.command({"op": "state"})["orders"]) == 200
+    finally:
+        gateway.stop()
+
+
+def test_interrupted_batch_recovers_without_duplicate_or_gap(db_path, private_venue):
+    """An interrupted batch leaves a durable prefix of unknown length.
+
+    The venue commits seventeen of the sixty transmitted requests and then drops
+    the connection without answering. The gateway is killed while the outcome is
+    ambiguous. After restart it must learn the prefix length from the venue
+    session rather than assume the batch was lost or delivered, retransmit only
+    the remainder, mark it as a possible duplicate, and leave exactly one venue
+    effect per client intent with no skipped sequence.
+    """
+    gateway = GatewayProcess(db_path, private_venue)
+    try:
+        for number in range(60):
+            gateway.command({
+                "op": "submit", "cl_ord_id": f"PART-{number:02d}", "qty": 30 + number,
+            })
+        set_venue_fault(private_venue, "accept_prefix", 17)
+        assert gateway.command({"op": "sync"})["caught_up"] is False
+    finally:
+        gateway.crash()
+
+    assert venue_json(private_venue, "/session")["next_client_seq"] == 18
+
+    restarted = GatewayProcess(db_path, private_venue)
+    try:
+        drain_sync(restarted, 10, "gateway did not recover the interrupted batch")
+
+        assert venue_json(private_venue, "/session")["next_client_seq"] == 61
+        ledger = venue_json(private_venue, "/ledger")["orders"]
+        assert len(ledger) == 60
+        assert all(order["status"] == "NEW" for order in ledger)
+        state = restarted.command({"op": "state"})["orders"]
+        assert [order["cl_ord_id"] for order in state] == [f"PART-{n:02d}" for n in range(60)]
+    finally:
+        restarted.stop()

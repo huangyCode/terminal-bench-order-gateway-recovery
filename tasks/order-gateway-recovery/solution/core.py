@@ -6,6 +6,9 @@ from .store import Store, encode
 from .transport import RetryableVenueError, VenueClient
 
 
+MAX_BATCH = 50
+
+
 class Gateway:
     def __init__(self, db_path: str, venue_url: str | None = None):
         self.store = Store(db_path)
@@ -208,23 +211,47 @@ class Gateway:
                         })
                         self._accept_venue_response(response)
             expected = int(session["next_client_seq"])
-            rows = self.store.db.execute(
-                "SELECT * FROM requests WHERE acknowledged=0 ORDER BY seq"
-            ).fetchall()
-            for row in rows:
-                if int(row["seq"]) < expected:
-                    continue
-                if int(row["seq"]) > expected:
+            rows = [
+                row
+                for row in self.store.db.execute(
+                    "SELECT * FROM requests WHERE acknowledged=0 ORDER BY seq"
+                ).fetchall()
+                if int(row["seq"]) >= expected
+            ]
+            if rows and int(rows[0]["seq"]) != expected:
+                return False
+            while rows:
+                batch = []
+                cursor = expected
+                for row in rows:
+                    if len(batch) >= MAX_BATCH or int(row["seq"]) != cursor:
+                        break
+                    batch.append(row)
+                    cursor += 1
+                if not batch:
                     return False
-                poss_dup = bool(row["send_attempted"])
+                wire = [
+                    self._wire_request(row, bool(row["send_attempted"]))
+                    for row in batch
+                ]
+                # Every message in the batch must be durably marked as attempted
+                # before any of it reaches the network, so a retry after an
+                # interrupted call reports poss_dup for the whole batch.
                 with self.store.immediate():
-                    self.store.db.execute(
+                    self.store.db.executemany(
                         "UPDATE requests SET send_attempted=1 WHERE request_id=?",
-                        (row["request_id"],),
+                        [(row["request_id"],) for row in batch],
                     )
-                response = self.venue.request(self._wire_request(row, poss_dup))
-                self._accept_venue_response(response)
-                expected += 1
+                result = self.venue.requests(wire)
+                for response in result.get("responses", []):
+                    self._accept_venue_response(response)
+                accepted = int(result.get("accepted", 0))
+                if accepted < len(batch):
+                    # The venue stopped part-way. Only its session history knows
+                    # how much of the batch became durable, so re-reconcile.
+                    return False
+                expected += accepted
+                rows = rows[len(batch):]
             pending = self.store.db.execute(
                 "SELECT 1 FROM requests WHERE acknowledged=0 LIMIT 1"
             ).fetchone()

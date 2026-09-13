@@ -8,15 +8,15 @@ artifacts = ["/app/gateway"]
 [task]
 name = "terminal-bench/order-gateway-recovery"
 description = ""
-authors = [{ name = "TODO", email = "TODO@example.com" }]
+authors = [{ name = "huangyCode", email = "novetyra@gmail.com" }]
 
 [metadata]
-author_name = "TODO"
-author_email = "TODO@example.com"
+author_name = "huangyCode"
+author_email = "novetyra@gmail.com"
 category = "Software"
 subcategory = "Systems"
-tags = ["durability", "protocols", "sqlite", "recovery", "exactly-once"]
-expert_time_estimate_hours = 4.0
+tags = ["crash-recovery", "exactly-once", "session-protocol", "concurrency", "throughput"]
+expert_time_estimate_hours = 8.0
 
 [agent]
 timeout_sec = 28800.0

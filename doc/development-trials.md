@@ -148,3 +148,141 @@ The next difficulty increment should introduce a single realistic systems bounda
 Two gateway processes concurrently submit disjoint client intents into one SQLite database, then concurrently synchronize against one venue. The verifier requires 16 unique gap-free client sequences, one venue effect per order, convergence after one worker is killed, and identical normalized state from the survivor.
 
 The first repeated Oracle run exposed a real bootstrap race: a worker could exit while both processes configured SQLite WAL/schema state. The store now retries only SQLite busy/locked bootstrap failures, uses a bounded timeout, and begins mutation transactions with `BEGIN IMMEDIATE`. Five consecutive corrected Oracle trials passed; the earlier 2/5 result is retained as development evidence and is not a model trial.
+
+## Trial D5 — Codex on concurrent shared-database workers V3c
+
+- Date: 2026-09-13
+- Task revision: V3c (`d92266b` in the submission repository)
+- Agent/model: Codex, `openai/gpt-5.6-sol`, reasoning `xhigh`
+- Job: `jobs/codex-v3c-calibration`
+- Runtime: 43m 03s
+- Reward: 1.0
+- Exceptions: 0
+- Classification: valid legitimate pass; development calibration only
+
+Codex repaired the full request and inbound-session state machines and handled the shared-database schedule by combining `BEGIN IMMEDIATE` mutation transactions with a process-scoped `flock` around network reconciliation. The kernel releases that lock if its owner dies, while concurrent callers return a retryable result instead of double-sending. The agent also built its own protocol, disconnect, restart, resend, and real-HTTP concurrency tests before the hidden verifier passed.
+
+This is not a required standard trial and must not be reported as a model failure. V3c increased solution time substantially but still allowed concurrency to be reduced to one globally serialized `sync`. V3d should test a deterministic handoff across the dangerous network window: kill the active coordinator after the independent venue has durably committed but before its response is delivered, accept additional intents through another worker, and require that survivor to reconcile the ambiguous old request, outbound resend state, and an inbound delivery gap before sending the new suffix exactly once.
+
+## Validation V4 — batched reconciliation with a deterministic transmission budget
+
+- Date: 2026-09-14
+- Harness: Harbor 0.18.0, Docker backend
+- Upstream baseline: `e2995b93b0a46edee7bc9942ea5622411a6d5bb9`
+
+### Why the axis changed
+
+Four consecutive increments (V2c, V3a, V3b, V3c) were validly passed by Codex, and reading the artifact from
+`jobs/codex-v3c-calibration` explained why. Its `store.py` implements `sync_lock()` as a non-blocking
+`fcntl.flock`, used only around network reconciliation, with the comment that the kernel releases it when a
+process dies. Client intent is appended under SQLite `BEGIN IMMEDIATE` and does not take that lock. That design
+already satisfies every barrier V3d was built to test, so V3d would very likely have been passed as well.
+
+A fencing/epoch increment was designed and then discarded before implementation: `apply_request` in the venue
+already returns the recorded response for a known `request_id` without creating a second effect, and requires
+`client_seq` to equal `next_client_seq` exactly. A resumed zombie worker therefore cannot double-apply anything,
+so an epoch check would have added protocol surface without adding difficulty.
+
+V4 changes the kind of difficulty instead of adding another invariant of the same kind. Correctness is no longer
+sufficient: the venue session carries a stated transmission-call budget, so reconciliation must batch, and
+batching is what makes the failure cases harder. An interrupted batch leaves a durable prefix whose length cannot
+be determined from local state, so efficiency and crash-consistency pull against each other.
+
+### Implementation
+
+- Both venues gained `POST /requests` (ordered batch, at most 50, per-request commit), a `transmit_calls` counter
+  exposed at `GET /stats`, and an `accept_prefix` fault that accepts a counted number of requests and then drops
+  the connection without answering.
+- Disconnect faults were refactored into a shared `transmit_one` helper so a scenario behaves identically whether
+  the gateway transmits singly or in a batch. Before the refactor, batching silently disabled five existing
+  scenarios (observed as 12/17 in `jobs/oracle-v4a`).
+- The reference solution transmits the contiguous unacknowledged prefix as one batch, durably marks every message
+  in it as attempted before any I/O, and re-reconciles from the venue session when the venue stops early.
+- Two verifier gates were added: a 200-request backlog capped at six transmission calls, and an interrupted batch
+  (17 of 60 accepted) followed by a kill, restart and recovery with no duplicate or skipped sequence.
+
+### Verifier hardening applied in the same pass
+
+- `tests/test.sh` no longer pre-writes `reward.txt`, and only pytest exit codes 0 and 1 are gradeable. Collection
+  or internal errors, and a verifier venue that will not start, leave the reward unwritten so the harness records
+  an infrastructure error instead of a zero the agent did not earn. Regression: `jobs/oracle-t2t3-regression`,
+  5/5 reward 1.0.
+- Gateway diagnostics are captured to a temp file instead of a pipe, closing a path where a daemonised grandchild
+  holding stderr open would block the verifier until its timeout.
+- A `cheat/` oracle was added following the convention used by 17 merged tasks: it installs a gateway core that
+  solves nothing, double-forks a daemon that tries to overwrite `/logs/verifier/reward.*`, and holds stderr open.
+
+### Negative calibration of the new bounds
+
+| Variant | Result | Meaning |
+|---|---|---|
+| Reference solution (batch of 50) | 17/17 | minimum achievable is four calls, budget is six |
+| One call per request, functionally correct | fails budget + interrupted-batch gates | correctness alone is not sufficient |
+| Batches of ten, functionally correct | fails budget gate only | the interrupted-batch gate does not depend on the batch size chosen |
+
+The third row is the important one: it confirms the `accept_prefix` fault counts accepted requests rather than a
+position inside one call, so a gateway that batches differently from the reference solution is not failed for the
+wrong reason. An earlier position-based version of that fault would have silently skipped the scenario for any
+batch size below the prefix length; it was corrected before the bound was recorded.
+
+### Results at this revision
+
+- Static checks: 22/22
+- Oracle smoke: `jobs/oracle-v4-smoke`, reward 1.0, 17/17 checks
+- Oracle stability: `jobs/oracle-v4-stability`, see the results table in the submission README
+
+### Infrastructure note that cost time
+
+A first attempt at the stability run hung after `Collecting main service artifacts` with no container left
+running. The cause was a `environment-venue-1` container left running for 23 hours by an earlier direct
+`docker compose` session. The task's compose file lives in `environment/`, so its compose project name is
+`environment` and collided with that stale project. Removing the stale container restored normal runs. This is
+recorded because it is exactly the class of failure that must never be counted as a model failure.
+
+## Security finding V4-S1 — the reward channel was forgeable through a bind-mounted logs directory
+
+- Date: 2026-09-14
+- Found by: the newly added `cheat/` oracle, on its first run
+- Job (exploited): `jobs/cheat-oracle-v4`, reward **1**
+- Job (blocked after the fix): `jobs/cheat-oracle-v4-hardened`, reward **0**
+
+### What happened
+
+The cheat oracle installs a gateway core that solves nothing and, at import time, double-forks a daemon which
+repeatedly writes a passing verdict to `/logs/verifier/reward.txt` and `/logs/verifier/reward.json`. The verifier
+ran it as `nobody` through `runuser`, the tests failed 16 of 17, `test.sh` wrote `0` — and the job still reported
+reward **1**. `reward.json` is proof on its own: `test.sh` never creates that file, so it could only have been
+written by the executed artifact.
+
+### Root cause
+
+The defence was `chmod 700 /logs/verifier` before any agent code runs. In a bare container that works: probing the
+verifier image directly, `runuser -u nobody -- sh -c 'echo 1 > /logs/verifier/reward.txt'` returns
+`Permission denied`. In a real trial the same directory is bind-mounted from the macOS host, where Docker
+Desktop's file sharing does not honour a container-side `chmod`, so the mode never took effect and the
+unprivileged daemon could write. A verdict that depends on directory permissions is therefore not portable across
+environment backends.
+
+### Fix
+
+`tests/test.sh` no longer relies on the reward directory's mode. The verdict is now produced by root, after the
+verifier has reaped everything the agent produced:
+
+1. pytest writes its CTRF report to `/tmp/ctrf.json`, outside the reward directory, while agent code is alive.
+2. After pytest returns, `pkill -9 -u nobody` runs three times with a short pause. The gateway only ever executes
+   as `nobody`, so this reaps any daemon that outlived its session and is waiting to forge a verdict.
+3. Root deletes `reward.txt` and `reward.json` — discarding anything the artifact planted — copies the CTRF report
+   in, and only then writes the reward derived from pytest's own exit status.
+4. `chmod 700` is kept as defence in depth but is no longer load-bearing, and is tolerant of failure.
+5. `procps` was added to the verifier image for `pkill`.
+
+### Why this matters beyond this task
+
+The implementation rubric's `verifier_execution_isolation` guidance lists `chmod 700 /logs/verifier` as the way to
+protect the reward channel. That is sufficient on an overlay filesystem and insufficient on a bind mount that
+ignores chmod. Any task whose verifier executes agent-produced code and relies on that single measure is
+exploitable on at least one supported backend. Killing the unprivileged processes before root states the verdict
+is the portable version of the same rule.
+
+This is also the strongest argument for the adversarial trial requirement: every automated check, the oracle, the
+nop validation and all 22 static checks were green while the verifier was trivially bypassable.

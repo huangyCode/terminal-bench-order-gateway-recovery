@@ -7,7 +7,7 @@ from contextlib import contextmanager
 class Store:
     def __init__(self, path: str):
         last_error = None
-        for _ in range(40):
+        for _ in range(200):
             self.db = sqlite3.connect(path, timeout=30)
             self.db.row_factory = sqlite3.Row
             try:
