@@ -152,6 +152,28 @@ def require_resend(url: str, resend_from: int, hide_responses: list[str]) -> Non
     urllib.request.urlopen(request, timeout=2).read()
 
 
+def set_venue_fault(url: str, name: str, count: int) -> None:
+    body = json.dumps({"name": name, "count": count}).encode()
+    request = urllib.request.Request(
+        f"{url}/admin/fault",
+        data=body,
+        headers={"Authorization": "Bearer public-smoke-token", "Content-Type": "application/json"},
+        method="POST",
+    )
+    urllib.request.urlopen(request, timeout=2).read()
+
+
+def replay_venue_event(url: str, request_id: str) -> dict:
+    body = json.dumps({"request_id": request_id}).encode()
+    request = urllib.request.Request(
+        f"{url}/admin/replay-event",
+        data=body,
+        headers={"Authorization": "Bearer public-smoke-token", "Content-Type": "application/json"},
+        method="POST",
+    )
+    return json.loads(urllib.request.urlopen(request, timeout=2).read())
+
+
 def test_artifact_is_a_small_regular_python_tree():
     root = pathlib.Path("/app/gateway")
     assert root.is_dir() and not root.is_symlink()
@@ -428,3 +450,33 @@ def test_precommit_disconnect_marks_retransmission_across_restart(db_path, priva
         "status": "NEW",
     }]
     recovered.stop()
+
+
+def test_inbound_gap_and_duplicate_business_event_survive_restart(db_path, private_venue):
+    gateway = GatewayProcess(db_path, private_venue)
+    gateway.command({"op": "submit", "cl_ord_id": "IN-A", "qty": 12})
+    assert gateway.command({"op": "sync"})["caught_up"] is True
+    gateway.command({"op": "submit", "cl_ord_id": "IN-B", "qty": 14})
+    inject_after_commit_disconnect(private_venue)
+    assert gateway.command({"op": "sync"})["caught_up"] is False
+    gateway.crash()
+
+    duplicate = replay_venue_event(private_venue, "IN-A")
+    assert duplicate["venue_seq"] == 3
+    set_venue_fault(private_venue, "hide_venue_seq:2", 1)
+    recovered = GatewayProcess(db_path, private_venue)
+    assert recovered.command({"op": "sync"})["caught_up"] is False
+    recovered.crash()
+
+    set_venue_fault(private_venue, "hide_venue_seq:2", 0)
+    final = GatewayProcess(db_path, private_venue)
+    assert final.command({"op": "sync"})["caught_up"] is True
+    assert final.command({"op": "state"})["orders"] == [
+        {"cl_ord_id": "IN-A", "qty": 12, "cum_qty": 0, "leaves_qty": 12, "status": "NEW"},
+        {"cl_ord_id": "IN-B", "qty": 14, "cum_qty": 0, "leaves_qty": 14, "status": "NEW"},
+    ]
+    session = venue_json(private_venue, "/session")
+    assert [event["exec_id"] for event in session["responses"]] == [
+        "EXEC-1-IN-A", "EXEC-2-IN-B", "EXEC-1-IN-A",
+    ]
+    final.stop()

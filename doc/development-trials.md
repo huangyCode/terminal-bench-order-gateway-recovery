@@ -108,3 +108,14 @@ The verifier now distinguishes two outbound recovery decisions. A locally acknow
 The preceding job `jobs/codex-v3a-calibration` produced zero valid trials because NVM/npm installation exceeded Harbor's 360-second agent-setup timeout. It is an infrastructure error and is not counted. The retry changed only the local setup-timeout multiplier and then completed normally.
 
 Codex's valid pass shows that explicit outbound replay, gap-fill selection, and durable pre-I/O attempt tracking add meaningful work but still do not meet the required frontier-model failure rate. V3b must add the other half of session recovery: independently sequenced inbound events, durable future-event buffering, missing-range reconciliation, and repeated business executions under new delivery sequence numbers.
+
+## Validation V3b — inbound delivery gaps and replay
+
+- Date: 2026-09-13
+- Static checks: all 22 current CI checks passed
+- Oracle: `jobs/2026-09-13__14-52-20`, reward 1.0, zero exceptions
+- Nop: `jobs/2026-09-13__14-53-10`, reward 0.0, zero exceptions
+
+The venue now keeps its accepted-request ledger separate from its event-delivery log. The verifier hides venue sequence 2 while delivering sequence 3, where sequence 3 repeats the stable business `exec_id` from sequence 1. It kills the gateway with the future event buffered, restores sequence 2, restarts the gateway, and requires the contiguous delivery cursor to reach 4 while applying the repeated business event only once.
+
+The first Oracle attempt (`jobs/2026-09-13__14-50-50`) exposed a reference-solution bug: `sync` compared its inbound cursor with the session snapshot taken before sending new requests. The fix performs a final session refresh after outbound progress. This was an implementation-development failure, not a model trial.
