@@ -30,6 +30,7 @@ class GatewayProcess:
             stderr=subprocess.PIPE,
             text=True,
             env=env,
+            start_new_session=True,
         )
 
     def command(self, value: dict, expect_ok: bool = True) -> dict:
@@ -48,13 +49,20 @@ class GatewayProcess:
         return response
 
     def crash(self) -> None:
-        self.proc.kill()
+        os.killpg(self.proc.pid, 9)
         self.proc.wait(timeout=5)
+
+    def _kill_process_group(self) -> None:
+        try:
+            os.killpg(self.proc.pid, 9)
+        except ProcessLookupError:
+            pass
 
     def stop(self) -> None:
         if self.proc.poll() is None:
             self.command({"op": "stop"})
             self.proc.wait(timeout=5)
+        self._kill_process_group()
 
 
 @pytest.fixture
@@ -78,6 +86,46 @@ def receive(gateway: GatewayProcess, seq: int, kind: str, exec_id: str, order: s
             "last_qty": qty,
         },
     })
+
+
+@pytest.fixture
+def private_venue(db_path):
+    venue_url = "http://127.0.0.1:18080"
+    venue_env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "VENUE_DB": f"{os.path.dirname(db_path)}/venue.db",
+        "VENUE_PORT": "18080",
+    }
+    venue = subprocess.Popen(["python3", "/tests/venue.py"], env=venue_env)
+    try:
+        for _ in range(40):
+            try:
+                urllib.request.urlopen(f"{venue_url}/health", timeout=.2).read()
+                break
+            except OSError:
+                time.sleep(.05)
+        else:
+            pytest.fail("private verifier venue did not start")
+        yield venue_url
+    finally:
+        if venue.poll() is None:
+            venue.terminate()
+            venue.wait(timeout=3)
+
+
+def venue_json(url: str, path: str) -> dict:
+    return json.loads(urllib.request.urlopen(f"{url}{path}", timeout=2).read())
+
+
+def inject_after_commit_disconnect(url: str) -> None:
+    body = json.dumps({"name": "after_commit_before_response", "count": 1}).encode()
+    request = urllib.request.Request(
+        f"{url}/admin/fault",
+        data=body,
+        headers={"Authorization": "Bearer public-smoke-token", "Content-Type": "application/json"},
+        method="POST",
+    )
+    urllib.request.urlopen(request, timeout=2).read()
 
 
 def test_artifact_is_a_small_regular_python_tree():
@@ -239,25 +287,8 @@ def test_interleaved_orders_replay_to_consistent_terminal_state(db_path):
     gateway.stop()
 
 
-def test_network_request_chain_reconciles_with_durable_venue(db_path):
-    venue_url = "http://127.0.0.1:18080"
-    venue_env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-        "VENUE_DB": f"{os.path.dirname(db_path)}/venue.db",
-        "VENUE_PORT": "18080",
-    }
-    venue = subprocess.Popen(["python3", "/tests/venue.py"], env=venue_env)
-    for _ in range(40):
-        try:
-            urllib.request.urlopen(f"{venue_url}/health", timeout=.2).read()
-            break
-        except OSError:
-            time.sleep(.05)
-    else:
-        venue.kill()
-        pytest.fail("private verifier venue did not start")
-
-    gateway = GatewayProcess(db_path, venue_url)
+def test_network_request_chain_reconciles_with_durable_venue(db_path, private_venue):
+    gateway = GatewayProcess(db_path, private_venue)
     gateway.command({"op": "submit", "cl_ord_id": "CHAIN-ROOT", "qty": 30})
     assert gateway.command({"op": "sync"})["caught_up"] is True
     gateway.command({
@@ -268,7 +299,7 @@ def test_network_request_chain_reconciles_with_durable_venue(db_path):
     })
     gateway.crash()
 
-    recovered = GatewayProcess(db_path, venue_url)
+    recovered = GatewayProcess(db_path, private_venue)
     assert recovered.command({"op": "sync"})["caught_up"] is True
     assert recovered.command({"op": "state"})["orders"] == [{
         "cl_ord_id": "CHAIN-ROOT",
@@ -277,7 +308,7 @@ def test_network_request_chain_reconciles_with_durable_venue(db_path):
         "leaves_qty": 21,
         "status": "CANCELLED",
     }]
-    ledger = json.loads(urllib.request.urlopen(f"{venue_url}/ledger", timeout=2).read())
+    ledger = venue_json(private_venue, "/ledger")
     order = next(item for item in ledger["orders"] if item["order_id"] == "CHAIN-ROOT")
     assert order == {
         "order_id": "CHAIN-ROOT",
@@ -287,5 +318,37 @@ def test_network_request_chain_reconciles_with_durable_venue(db_path):
         "status": "CANCELLED",
     }
     recovered.stop()
-    venue.terminate()
-    venue.wait(timeout=3)
+
+
+def test_ambiguous_commits_recover_across_two_gateway_restarts(db_path, private_venue):
+    gateway = GatewayProcess(db_path, private_venue)
+    gateway.command({"op": "submit", "cl_ord_id": "AMB-ROOT", "qty": 44})
+    inject_after_commit_disconnect(private_venue)
+    assert gateway.command({"op": "sync"})["caught_up"] is False
+    gateway.crash()
+
+    recovered = GatewayProcess(db_path, private_venue)
+    assert recovered.command({"op": "sync"})["caught_up"] is True
+    recovered.command({
+        "op": "replace", "order_id": "AMB-ROOT", "request_id": "AMB-R1", "qty": 33,
+    })
+    inject_after_commit_disconnect(private_venue)
+    assert recovered.command({"op": "sync"})["caught_up"] is False
+    recovered.crash()
+
+    final = GatewayProcess(db_path, private_venue)
+    assert final.command({"op": "sync"})["caught_up"] is True
+    final.command({
+        "op": "replace", "order_id": "AMB-ROOT", "request_id": "AMB-R1", "qty": 32,
+    }, expect_ok=False)
+    assert final.command({"op": "sync"})["caught_up"] is True
+    session = venue_json(private_venue, "/session")
+    assert [item["request_id"] for item in session["responses"]] == ["AMB-ROOT", "AMB-R1"]
+    assert venue_json(private_venue, "/ledger")["orders"] == [{
+        "order_id": "AMB-ROOT",
+        "current_request_id": "AMB-R1",
+        "qty": 33,
+        "cum_qty": 0,
+        "status": "NEW",
+    }]
+    final.stop()

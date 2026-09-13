@@ -56,3 +56,13 @@ This is an implementation checkpoint, not a required model trial. Standard and a
 - Verifier boundary: a private venue process is started inside the separate verifier container and is not reachable as an artifact or control surface from the agent container
 
 The scenario durably queues a NEW followed by REPLACE and CANCEL, kills the gateway before the latter requests are synchronized, restarts it against the same independent venue, and compares normalized local state with the venue's authoritative ledger. Two earlier Oracle attempts (`01-38-52`, `01-39-48`) exposed test-environment assumptions during development and are not trial results: the first encountered a stale public sidecar session; the second proved that a separate verifier intentionally cannot resolve the agent-side Compose hostname. Both were corrected by moving the authoritative test peer into the verifier boundary.
+
+## Validation V2c — ambiguous commits and verifier process hygiene
+
+- Date: 2026-09-13
+- Oracle stability: `jobs/2026-09-13__09-51-09`, 3/3 reward 1.0, zero exceptions
+- Nop: `jobs/2026-09-13__09-52-21`, reward 0.0, zero exceptions
+- Additional invariant: NEW and REPLACE are each committed by the venue before its HTTP response is deliberately dropped; the gateway is killed after each ambiguous result and must recover without adding a duplicate venue request.
+- Isolation hardening: every gateway subprocess starts in its own process group, and the verifier kills that group after crash and graceful-stop scenarios.
+
+The implementation-rubric attempt at `jobs/2026-09-13__09-49-40` is invalid infrastructure output: Claude Code returned `authentication_failed` and `Not logged in` before reading the task, producing no criterion verdicts. It is not classified as a task failure and must be rerun after Claude authentication is configured.
