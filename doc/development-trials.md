@@ -66,3 +66,21 @@ The scenario durably queues a NEW followed by REPLACE and CANCEL, kills the gate
 - Isolation hardening: every gateway subprocess starts in its own process group, and the verifier kills that group after crash and graceful-stop scenarios.
 
 The implementation-rubric attempt at `jobs/2026-09-13__09-49-40` is invalid infrastructure output: Claude Code returned `authentication_failed` and `Not logged in` before reading the task, producing no criterion verdicts. It is not classified as a task failure and must be rerun after Claude authentication is configured.
+
+## Trial D2 — Codex on the networked request-chain task
+
+- Date: 2026-09-13
+- Task revision: V2c (`bb89f84` in the submission repository)
+- Harness: Harbor 0.18.0, Docker backend
+- Agent/model: Codex, `openai/gpt-5.6-sol`, reasoning `xhigh`
+- Job: `jobs/codex-v2c-calibration`
+- Runtime: 20m 26s
+- Reward: 1.0
+- Exceptions: 0
+- Classification: valid legitimate pass; development calibration only
+
+Codex implemented durable inbound normalization, transactional replay, stable request chains, send-attempt tracking with `poss_dup`, session reconciliation, and restart repair. All ten verifier cases passed. The run consumed substantial exploration and reasoning, but it proves this revision cannot meet the hiring requirement that all three standard trials fail.
+
+### Design implication
+
+Do not count or present D2 as a required failure. The next revision must exercise recovery decisions that cannot be handled by simply replaying the venue's full response history: explicit venue-requested outbound resend ranges, gap fills for already accepted sequence slots, and inbound replay where the same business execution arrives under a new session sequence. These extend the same session-recovery problem rather than adding unrelated surface area.
