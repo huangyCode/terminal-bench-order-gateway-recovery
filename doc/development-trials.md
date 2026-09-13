@@ -119,3 +119,19 @@ Codex's valid pass shows that explicit outbound replay, gap-fill selection, and 
 The venue now keeps its accepted-request ledger separate from its event-delivery log. The verifier hides venue sequence 2 while delivering sequence 3, where sequence 3 repeats the stable business `exec_id` from sequence 1. It kills the gateway with the future event buffered, restores sequence 2, restarts the gateway, and requires the contiguous delivery cursor to reach 4 while applying the repeated business event only once.
 
 The first Oracle attempt (`jobs/2026-09-13__14-50-50`) exposed a reference-solution bug: `sync` compared its inbound cursor with the session snapshot taken before sending new requests. The fix performs a final session refresh after outbound progress. This was an implementation-development failure, not a model trial.
+
+## Trial D4 — Codex on bidirectional recovery V3b
+
+- Date: 2026-09-13
+- Task revision: V3b (`54112a6` in the submission repository)
+- Agent/model: Codex, `openai/gpt-5.6-sol`, reasoning `xhigh`
+- Job: `jobs/codex-v3b-calibration`
+- Runtime: approximately 41m 37s
+- Reward: 1.0
+- Exceptions: 0
+- Verifier: 13/13 tests passed
+- Classification: valid legitimate pass; development calibration only
+
+Codex successfully unified outbound request recovery with independently sequenced inbound delivery buffering and stable execution-ID deduplication. The longer trajectory confirms meaningful agentic work, but duration is not a failure signal and the pass means V3b still cannot satisfy the required three failures per model.
+
+The next difficulty increment should introduce a single realistic systems boundary not covered by more sequential schedules: two gateway processes sharing the durable database and racing submit/sync/recovery operations. Correctness then requires transaction-level sequence allocation, bounded SQLite lock handling, and prevention of double-send across concurrent workers while preserving every existing crash invariant.
