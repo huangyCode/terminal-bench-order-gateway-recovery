@@ -2,8 +2,9 @@
 
 # Billing Discount Replica
 
-Reviewer notes. The task metadata and the four explanations live in [task.toml](task.toml); this file
-covers how the task was built and how to check it.
+Reviewer notes: how the task was built, how ground truth is produced, and how to check it. The four
+explanation sections below are required by `check-task-fields` and mirror the same fields in
+[task.toml](task.toml).
 
 ## Difficulty explanation
 
@@ -70,8 +71,8 @@ the task would be testing a guess:
 ## Local checks
 
 ```bash
-for check in scripts/checks/check-*.sh; do bash "$check" tasks/legacy-billing-replica; done
-harbor run -p tasks/legacy-billing-replica --agent oracle --env docker --yes
-harbor run -p tasks/legacy-billing-replica --agent nop --env docker --yes
-harbor check tasks/legacy-billing-replica -r docs/prompts/task-implementation.toml
+for check in scripts/checks/check-*.sh; do bash "$check" tasks/billing-discount-replica; done
+harbor run -p tasks/billing-discount-replica --agent oracle --env docker --yes
+harbor run -p tasks/billing-discount-replica --agent nop --env docker --yes
+harbor check tasks/billing-discount-replica -r docs/prompts/task-implementation.toml
 ```

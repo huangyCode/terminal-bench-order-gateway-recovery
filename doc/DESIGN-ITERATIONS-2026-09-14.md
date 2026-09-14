@@ -115,3 +115,56 @@ Docker Desktop 的文件共享不遵守容器内的 chmod。证据是 `reward.js
 | harbor 在任何日志之前挂起 | 上述挂起留下的孤儿 `docker compose` / `buildx bake` 进程阻塞后续运行 |
 | `AgentSetupTimeoutError` | nodejs.org 下载速率波动（实测 41 KB/s 至 1.6 MB/s） |
 | codex 三次 trial 一小时无进展 | `failed to refresh available models`，宿主机与容器到 `api.openai.com` 均超时 |
+
+## 六、`legacy-billing-replica` 的标准试验结果
+
+任务冻结提交 `c524422`。配置取自基线的 `.github/harbor-run-defaults.yml`。
+
+| Agent | 模型 | 推理配置 | 三次结果 | 异常 |
+|---|---|---|---|---|
+| codex | `openai/gpt-5.6-sol` | `xhigh` | 1.0 / 1.0 / 1.0 | 0 |
+| claude-code | `anthropic/claude-opus-5` | `max` | 1.0 / 1.0 / 1.0 | 0 |
+
+`jobs/formal4-codex`（三次 7/7，65 分钟，$6.89）与 `jobs/formal2-claude`（三次 7/7，15 至 19 分钟）。
+
+**六次全部通过，招聘要求不满足。**
+
+### 这组数据的对照价值
+
+同一任务、同一套验证，唯一变量是录制中"窗口过期"规则的证据量：
+
+| 证据量 | 结果 |
+|---|---|
+| 0 行（规则不可推断） | 两个模型均失败 |
+| 3373 行（规则可推断） | 两个模型各三次全部通过 |
+
+通过率从 0% 变为 100%。这既量化了公平性与难度之间的边界，也确认了先前那两次"模型失败"
+完全由任务缺陷造成。
+
+### 为何无法通过增加规则数量解决
+
+录制包含完整的输入→输出配对，且每条规则均有证据，因此最优策略是机械循环：
+
+```
+实现 → 回放全部 12000 行 → 修正不一致 → 重复
+```
+
+一条规则即使只影响 68 行，回放也会把这 68 行呈现出来。规则从 7 条增至 15 条只延长循环，
+不改变其机械性质。
+
+要提高难度必须破坏**定位能力**：使一处不一致无法指出是哪一条规则出错。
+`billing-discount-replica` 即针对此点设计——折扣链的顺序与取整位置本身成为待推断内容，
+错误的顺序仍能复现大多数行。
+
+### 试验有效性纪律的实际应用
+
+本轮共发起五个 codex 作业，仅 `formal4-codex` 产出有效数据：
+
+| 作业 | 结局 |
+|---|---|
+| `formal2-codex` | 三次均卡在 `failed to refresh available models`，从未开始作业 |
+| `formal3-codex` | 同上，WebSocket 重连五次全失败后降级 HTTPS 亦超时 |
+| `formal4-codex` | 有效，三次完成 |
+
+根因为宿主机到 `api.openai.com` 的连通性反复中断（实测在超时与 401/3.5s 之间摆动）。
+作废的两个作业不计入任何统计。
