@@ -15,7 +15,7 @@
 - **Expert time:** 8 hours
 - **Agent timeout:** 8 hours
 - **CPUs:** 2
-- **Memory:** 4 GB
+- **Memory:** 2 GB
 
 See [instruction.md](instruction.md) for the task instruction and
 [environment/docs/protocol.md](environment/docs/protocol.md) for the normative command, message and endpoint

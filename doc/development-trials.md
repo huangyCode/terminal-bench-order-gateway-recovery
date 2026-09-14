@@ -286,3 +286,98 @@ is the portable version of the same rule.
 
 This is also the strongest argument for the adversarial trial requirement: every automated check, the oracle, the
 nop validation and all 22 static checks were green while the verifier was trivially bypassable.
+
+## Infrastructure finding V4-I1 — the host Docker allocation, not the task, caused six errored trials
+
+- Date: 2026-09-14
+- Job: `jobs/oracle-v4h-stability` — 10 attempts, 4 scored (all reward 1.0), **6 errored**
+- Exception: `EnvironmentStartTimeoutError` on every errored attempt, followed by
+  `no container found for service "main"` when artifact collection ran against an environment that never started
+
+### What it was not
+
+An earlier hang in this session was caused by a stale `environment-venue-1` container left by a manual
+`docker compose` session, and that led to the wrong conclusion that harbor reuses one Compose project. The trial
+log disproves it: harbor passes `--project-name order-gateway-recovery__<trial>__env`, so every trial gets its own
+project, its own containers and its own named volume. Trials do not collide with each other. A manually created
+`environment` project can still collide with them, so stale containers must be cleared before a run, but that is
+not what produced these six errors.
+
+### What it was
+
+Memory. The host Docker allocation was 7.7 GB while the task requested `memory_mb = 4096` for the main container
+alone, alongside a venue sidecar, a verifier container and five unrelated long-running services on the same
+daemon. The first attempts succeeded and later ones failed as pressure accumulated, which is consistent with the
+venue healthcheck missing its window rather than with any nondeterminism in the task.
+
+### Response
+
+Two changes, in opposite directions:
+
+1. The task's own footprint was reduced from `memory_mb = 4096` to `2048`. Nothing in the verification needs 4 GB —
+   the workload is SQLite and a few small Python processes, and the largest scenario is 200 queued orders. The
+   implementation rubric's `resource_configuration` criterion explicitly prefers reworking a task to use fewer
+   resources when the intellectual challenge is unaffected, so this is an improvement independent of the incident.
+2. The host Docker allocation must be raised before the formal trials. At 7.7 GB the results are not trustworthy
+   even when run sequentially: a majority of attempts never reached the verifier.
+
+### Discipline this reinforces
+
+`EnvironmentStartTimeoutError` is an environment fault and is never a model failure. A standard trial that ends
+this way must be discarded and rerun, and the count of valid trials must be taken from the scored attempts, not
+from the number of attempts launched. The same applies to the errored attempt recorded in the earlier
+`jobs/oracle-v3d-stability` run.
+
+## Correction to V4-I1 — the six errored trials were a registry failure, not memory pressure
+
+- Date: 2026-09-14
+- Supersedes the memory explanation recorded in V4-I1 above.
+
+### Evidence
+
+Nine hours after the `oracle-v4h-stability` job finished, two `docker compose` invocations and two
+`docker-buildx bake` invocations were still running, with elapsed times of 9h26m and 9h16m. Their project names
+were `order-gateway-recovery__8vfj5kd__env` and `order-gateway-recovery__cus5vpa__env` — two of the six trials that
+harbor had recorded as `EnvironmentStartTimeoutError`. They had never exited.
+
+The reason they never exited is the host's Docker registry configuration. Three Docker Hub mirrors are configured
+(`docker.1panel.live`, `docker.m.daocloud.io`, `dockerproxy.com`) and all three are unreachable:
+
+```
+dialing docker.1panel.live:443 ... connect: can't assign requested address
+```
+
+`python:3.13-slim-bookworm` was not present locally, so every environment build tried to pull it and hung
+indefinitely rather than failing. Two facts confirm the diagnosis rather than the memory theory: a trivial
+`docker build` from a locally cached base completed immediately, and `apt-get update` from inside a container
+succeeded — so the network and the build subsystem were both healthy. Only image pulls were broken.
+
+The hung processes also explain a second symptom: after those orphans accumulated, every new harbor run stalled
+before writing a single line of its trial log, even with `--debug`. They were blocking the new runs.
+
+### Resolution
+
+1. The base image was fetched through a reachable mirror and tagged locally:
+   `docker pull mirror.gcr.io/library/python:3.13-slim-bookworm` then
+   `docker tag mirror.gcr.io/library/python:3.13-slim-bookworm python:3.13-slim-bookworm`.
+   Verified as `VERSION_CODENAME=bookworm`, Python 3.13.15. No task file changed — the Dockerfiles still name the
+   canonical tag, so a reviewer on a working registry pulls the real image.
+2. The orphaned `docker compose` and `docker-buildx bake` processes were killed.
+
+After both steps, nop scored 0.0 and oracle runs completed normally in under a minute each.
+
+### What this changes about the task
+
+Nothing. `memory_mb` was reduced from 4096 to 2048 while the memory theory was live, and that reduction is kept on
+its own merits — the workload is SQLite and a handful of small Python processes, and the rubric's
+`resource_configuration` criterion prefers the smaller footprint. But it was not the fix.
+
+### Discipline
+
+Two rules follow, both about never letting local infrastructure contaminate trial results:
+
+1. `EnvironmentStartTimeoutError` is an environment fault. The six errored attempts in `oracle-v4h-stability` are
+   discarded, not counted as oracle failures. The four attempts that reached the verifier all scored 1.0.
+2. Killing a harbor run leaves orphaned `docker compose` and `buildx` children that silently block every later
+   run. After interrupting a job, check for and kill any process whose command line contains the task's project
+   name prefix before starting another.

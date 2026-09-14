@@ -18,7 +18,14 @@ The development environment includes a venue sidecar with visible documentation 
 
 ### Verifier venue
 
-The separate verifier contains an independently implemented peer following the same protocol. It varies values, interleavings, disconnect boundaries, replay windows, and restart points, but introduces no new message type or semantic rule. It owns the authoritative business-effect ledger.
+The separate verifier contains its own peer following the same protocol, baked into the verifier image and unreachable from the agent container. It varies values, interleavings, disconnect boundaries, replay windows, and restart points, but introduces no new message type or semantic rule. It owns the authoritative business-effect ledger.
+
+The verifier peer and the development sidecar are deliberately close relatives rather than independent
+reimplementations: they must agree on the documented contract exactly, and two separately written peers would
+drift and turn protocol ambiguity into unfair failures. The verifier peer carries the fault injection and the
+authoritative ledger the sidecar does not, which is where the two diverge (58 differing lines at the current
+revision). The isolation that matters is that the agent can neither read the verifier peer nor reach it, not that
+it was written twice.
 
 ## Business request model
 
