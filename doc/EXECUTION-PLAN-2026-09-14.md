@@ -267,3 +267,21 @@ agent 产生的一切进程，删掉被植入的 `reward.txt`/`reward.json`，�
 
 这条同时改变了一个判断：**`/cheat` 不是收尾的形式步骤，它是唯一能发现这类漏洞的关卡。** 所以后续任何改动
 verifier 的行为，都必须重跑 cheat oracle，而不只是重跑 Oracle/Nop。
+
+### 追加：agent 安装阶段的网络是正式 trial 的主要运行风险
+
+`harbor check -a codex` 失败于 `NetworkConnectionError`：codex 的 agent setup 脚本固定要从
+`raw.githubusercontent.com` 下载 nvm，容器内下载速度掉到 163 B/s。这与昨天 D3 那次 "NVM/npm 超过 360 秒
+setup timeout" 是同一个原因，且无法绕开——该脚本由 harbor 的 codex agent 内置，在 Debian 分支下始终装 nvm，
+预装 nodejs 也不会跳过。
+
+正式 trial 的应对配置：
+
+```bash
+--agent-setup-timeout-multiplier 6 -r 3
+```
+
+`-r/--max-retries` 只对**异常**重试，不对 reward 0 重试——一个拿到 0 分的 trial 是"已完成"而不是"异常"。
+所以自动重试只会吸收基础设施故障，不会掩盖真实的模型失败，这正是我们需要的语义。
+
+`harbor check` 没有 retry 或 timeout 选项，只能在网络配合时手动重跑。
