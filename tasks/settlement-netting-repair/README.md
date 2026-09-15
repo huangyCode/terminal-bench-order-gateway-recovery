@@ -19,7 +19,7 @@ The verifier holds its own implementation of the contract and grades the agent's
 
 ## Relevant experience
 
-RELEVANT_EXPERIENCE_PENDING
+Twelve years of engineering, currently leading AI at MobTech. Built the deterministic validation engine of an LLM training-data platform, where numeric-consistency checks decide whether a sample is admitted. Before that, owned a quantitative futures trading system rebuilt from a monolith into nine services, covering Binance market-data ingestion, order execution and risk checks, and designed the on-chain event indexer for a BSC decentralised exchange, parsing Swap, Mint and Burn events into a structured ledger and aggregating them into prices and pool reserves. Also built a Solana fund-flow monitor that normalised raw transaction instructions into transfer, swap and liquidity events. That work is where the shape of this task comes from: money moving between two parties is recorded from both sides, corrections arrive after the fact, rounding conventions differ between systems, and a books-don't-balance report tells you something is wrong without telling you which stage broke it.
 
 ## The coupling measurement
 

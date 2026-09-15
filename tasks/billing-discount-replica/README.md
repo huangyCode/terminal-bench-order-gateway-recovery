@@ -20,7 +20,7 @@ The verifier holds its own Python replica of the engine and grades the agent's m
 
 ## Relevant experience
 
-RELEVANT_EXPERIENCE_PENDING
+Twelve years of engineering, currently leading AI at MobTech. Built the deterministic validation engine of an LLM training-data platform, where numeric-consistency checks decide whether a sample is admitted. Before that, owned a quantitative futures trading system rebuilt from a monolith into nine services, covering Binance market-data ingestion, order execution and risk checks, and designed the on-chain event indexer for a BSC decentralised exchange, parsing Swap, Mint and Burn events into a structured ledger and aggregating them into prices and pool reserves. That work is where the shape of this task comes from: a metering or billing engine accretes conventions over years, the rules survive only in what the system emitted, and a replacement has to agree to the cent rather than merely be reasonable.
 
 ## How ground truth is produced
 

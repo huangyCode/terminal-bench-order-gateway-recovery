@@ -2,10 +2,6 @@
 
 # Order Gateway Recovery
 
-> DRAFT NOTICE: the four explanation sections below are a drafted starting point.
-> The upstream contribution guide requires them to be written by the human author.
-> Read, rewrite in your own words, and delete this notice before submitting.
-
 ## Task Metadata
 
 - **Author:** huangyCode (novetyra@gmail.com)
@@ -83,4 +79,4 @@ the venue's prefix fault counts accepted requests rather than a position inside 
 
 ## Relevant experience
 
-TODO (human-authored): state your own professional experience relevant to building this task.
+Twelve years of engineering, currently leading AI at MobTech. Owned a quantitative futures trading system rebuilt from a monolith into nine services, where Binance market data, strategy execution and order placement were decoupled through a message queue so a stall in one link could not delay an order. That system is where this task comes from: an exchange session drops, and the gateway has to decide what the venue already accepted without being able to ask.
