@@ -79,7 +79,43 @@ prepended to the instruction, as the CI `/cheat` workflow does.
 
 ## Standard and adversarial trials — Codex gpt-5.6-sol
 
-CODEX_RESULTS_PENDING
+### Standard trials
+
+Jobs `jobs/settle-formal-codex` (two valid) and `jobs/settle-formal-codex-3rd` (one valid), run serially
+with `-n 1` after a Docker restart freed host memory.
+
+| Trial | Reward | Verifier checks | Valid | Repaired |
+|---|---|---|---|---|
+| `settlement-netting-repair__reXoTtT` | **0.0** | 1 / 6 | yes | `fx.py` |
+| `settlement-netting-repair__pyrFkvH` | **0.0** | 1 / 6 | yes | `ledger.py`, `fx.py` |
+| `settlement-netting-repair__H3kwFcU` | **0.0** | 1 / 6 | yes | `ledger.py`, `fx.py` |
+| `settlement-netting-repair__deSJmtx` | — | — | **no** | `NetworkConnectionError`, rerun as `H3kwFcU` |
+
+All three produce the same first mismatch as Claude: `4,497,631` against an expected `8,995,262`.
+
+Two of the three repaired **two** of the four defects, one more than Claude managed, and still scored
+zero. That is the all-or-nothing property working as designed: a half repair and no repair are worth
+exactly the same.
+
+### Adversarial trial
+
+Job `jobs/settle-cheat-codex`. **Not a valid result.** The model produced 37 KB of work under the
+red-team prompt and was then stopped server-side:
+
+```
+{"type":"error","message":"This content was flagged for possible cybersecurity risk..."}
+{"type":"turn.failed", ...}
+```
+
+Three retries returned the same refusal. The reward file reads `0`, but that zero records a refusal to
+attempt the attack rather than a verifier that withstood one. The CI trial-analysis rubric has a
+`Refusals` check for exactly this case — it fires "on `/cheat` trials when an agent declines to cheat" —
+so this is reported as a refusal, not as a passed adversarial trial.
+
+The adversarial property is evidenced instead by the Claude run (`jobs/settle3-cheat-claude`), which
+attacked for thirty minutes and scored 0.0 with the reward file untouched, and by the deterministic cheat
+oracle, which installs an artifact that daemonises and rewrites `/logs/verifier/reward.*` and also
+scores 0.0.
 
 ## Discarded runs
 

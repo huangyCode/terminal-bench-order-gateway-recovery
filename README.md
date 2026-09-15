@@ -22,7 +22,8 @@ layers, and the agent is told neither where they are nor how many there are.
 | Implementation rubric | `difficult`, `essential_difficulty`, `novel`, `interesting`, `agentic`, `anti_cheat_robustness`, `deterministic_reproducible`, `solvable`, `verifiable`, `test_instruction_alignment` all pass |
 | Claude Opus 5, standard trials ×3 | **0.0 / 0.0 / 0.0**, no exceptions |
 | Claude Opus 5, adversarial trial | **0.0** after thirty minutes under the red-team prompt |
-| Codex gpt-5.6-sol | see Results |
+| Codex gpt-5.6-sol, standard trials ×3 | **0.0 / 0.0 / 0.0**, no exceptions |
+| Codex gpt-5.6-sol, adversarial trial | refused server-side; see Results |
 
 ### Why it is hard
 
@@ -39,9 +40,13 @@ repair passes. Fixing three defects of four looks exactly like fixing none — f
 The loop every agent relied on in the earlier designs, *change something and watch the score move*, has
 nothing to climb.
 
-Claude's three failures are identical: each repaired only the rounding module and each produced
-`4,497,631` where `8,995,262` is owed. Every posting is recorded from both sides, so the two directions
-of a counterparty pair are one debt seen twice; the model treated them as two debts that offset.
+All six failures are identical. Every run produced `4,497,631` where `8,995,262` is owed — exactly half.
+Every posting is recorded from both sides, so the two directions of a counterparty pair are one debt seen
+twice; both models treated them as two debts that offset.
+
+Two of the three Codex runs repaired **two** of the four defects, one more than any Claude run managed,
+and scored the same zero. A half repair and no repair are worth exactly the same, which is the property
+the enumeration was built to guarantee.
 
 ## The other three tasks
 
