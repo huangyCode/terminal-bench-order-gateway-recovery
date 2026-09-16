@@ -23,7 +23,7 @@ layers, and the agent is told neither where they are nor how many there are.
 | Claude Opus 5, standard trials ×3 | **0.0 / 0.0 / 0.0**, no exceptions |
 | Claude Opus 5, adversarial trial | **0.0** after thirty minutes under the red-team prompt |
 | Codex gpt-5.6-sol, standard trials ×3 | **0.0 / 0.0 / 0.0**, no exceptions |
-| Codex gpt-5.6-sol, adversarial trial | refused server-side; see Results |
+| Codex gpt-5.6-sol, adversarial trial | cut off server-side mid-attack; see Results |
 
 ### Why it is hard
 
