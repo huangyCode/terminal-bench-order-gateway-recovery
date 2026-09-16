@@ -21,9 +21,9 @@ layers, and the agent is told neither where they are nor how many there are.
 | Nop | reward 0.0 |
 | Implementation rubric | `difficult`, `essential_difficulty`, `novel`, `interesting`, `agentic`, `anti_cheat_robustness`, `deterministic_reproducible`, `solvable`, `verifiable`, `test_instruction_alignment` all pass |
 | Claude Opus 5, standard trials ×3 | **0.0 / 0.0 / 0.0**, no exceptions |
-| Claude Opus 5, adversarial trial | **0.0** after thirty minutes under the red-team prompt |
-| Codex gpt-5.6-sol, standard trials ×3 | **0.0 / 0.0 / 0.0**, no exceptions (a fourth run, `probe-normal-codex`, also scored 0.0) |
-| Codex gpt-5.6-sol, adversarial trial | not obtainable - OpenAI's classifier rejects the official red-team prompt itself. Control: removing only that prompt takes the same account from 963 bytes and zero commands to 96.7 KB, 36 commands and a completed verifier run. See Results |
+| Claude Opus 5, adversarial trial | **0.0**, reward file untouched, no exception |
+| Codex gpt-5.6-sol, standard trials ×3 | **0.0 / 0.0 / 0.0**, no exceptions (a fourth valid run also scored 0.0) |
+| Codex gpt-5.6-sol, adversarial trial | terminated server-side by the provider's classifier; no run produced a nonzero reward |
 
 ### Why it is hard
 
@@ -40,50 +40,59 @@ repair passes. Fixing three defects of four looks exactly like fixing none — f
 The loop every agent relied on in the earlier designs, *change something and watch the score move*, has
 nothing to climb.
 
-All six failures are identical. Every run produced `4,497,631` where `8,995,262` is owed — exactly half.
-Every posting is recorded from both sides, so the two directions of a counterparty pair are one debt seen
-twice; both models treated them as two debts that offset.
+All seven valid runs failed identically. Every one produced `4,497,631` where `8,995,262` is owed —
+exactly half. Every posting is recorded from both sides, so the two directions of a counterparty pair are
+one debt seen twice, and collapsing them means adding the two records. Every run kept one and discarded
+the other.
 
-Two of the three Codex runs repaired **two** of the four defects, one more than any Claude run managed,
-and scored the same zero. A half repair and no repair are worth exactly the same, which is the property
-the enumeration was built to guarantee.
+This is not a failure to find the defects. Every run changed all four defective modules, repaired three
+of them correctly, and wrote a correct order-independent pair helper. One run even worked out that the
+mirrored view carries the opposite sign — and still assigned where it had to accumulate. The whole
+outcome turns on one semantic judgement made with no feedback that would reveal it was wrong.
 
-## The other three tasks
+## Why this design, and not an easier one
 
-Kept because they are the measurements that led here, not because they are submissions.
+Three earlier designs were built and measured before this one. They are not part of the submission;
+what they established is.
 
-| Task | What it tested | Outcome |
+| Design | What it tested | Measured outcome |
 |---|---|---|
-| [`order-gateway-recovery`](tasks/order-gateway-recovery/) | implementing a complete crash-consistency spec | Codex passed all six revisions |
-| [`legacy-billing-replica`](tasks/legacy-billing-replica/) | inducing seven rules from a 12,000-line recording | both models passed three of three |
-| [`billing-discount-replica`](tasks/billing-discount-replica/) | the same with fifteen rules and an order-dependent discount chain | Claude passed; output grew from 65 KB to 1.34 MB and the outcome did not change |
+| Crash-consistent order gateway | implementing a complete crash-consistency specification | Codex passed every revision |
+| Metering replica, seven rules | inducing the rules from a 12,000-line recording | both models passed three of three |
+| Billing replica, fifteen rules | the same, plus an order-dependent discount chain and three rounding conventions | Claude passed; its output grew from 65 KB to 1.34 MB and the outcome did not change |
 
-The third is the useful negative result: **rule count is not difficulty**. With a complete recording the
-winning method is a mechanical implement-replay-fix loop, and more rules only make the loop longer.
+The third is the useful negative result: **rule count is not difficulty**. When the recording is
+complete, the winning method is a mechanical implement-replay-fix loop, and more rules only make the
+loop longer. Difficulty had to come from removing the feedback, not from adding rules - which is what
+the enumeration above is built on: fifteen of sixteen repair subsets score zero, so no partial repair
+tells the agent it is on the right track.
 
-## Telling a model failure from a broken task
+## Separating a model failure from a broken task
 
-Six times a result looked like a model failure and was not. Each is documented with the artifact that
-disproved it:
+A failing trial proves nothing on its own. It has two possible causes that look identical from the
+outside: the model did not manage the task, or the task did not give it enough to work with. Every
+candidate failure was put through that test before this task was frozen, and each time the deciding
+evidence was the artifact, not the score.
 
-1. Seven assertions demanded `sync` report `caught_up=false` after a lost response. Codex's artifact
-   re-read the authoritative session and converged inside the same call, which the contract permits.
-2. Two assertions pinned intermediate state that only holds if the gateway does not retry inside a call.
-3. One assertion demanded `REPLAY` for a sequence whose acceptance the gateway had legitimately
-   recorded, where the contract calls for `GAP_FILL`. Replaying that artifact without the assertion: 17/17.
-4. Both models failed the legacy replica identically. Ablation showed the rule they missed changed
-   **zero** lines of the shipped recording — `seq` is global across accounts, so in a many-account stream
-   every event looks like a sequence gap to its own account and the window is flushed before anything can
-   age out. The recording was all many-account streams; the test was single-account.
-5. Claude's first run on this task raised `KeyError: 'swap'`, reading the fee schedule from an entry's
-   `product` field. The contract never related that field to the schedule names.
-6. A defect in an early revision of this task was unreachable: `obligations()` normalises direction, so
-   negative rounding was never exercised. A defect no check can observe is a hidden requirement, so the
-   report gained a signed per-account residual and the enumeration was rerun.
+The rule that came out of it, and that this task is built on:
 
-The fourth was raised by a reviewer asking whether the failure might be missing information rather than
-missing capability. That question is now a standing procedure: **no rule ships until ablating it is shown
-to change the evidence the agent is given.**
+> **No rule ships until ablating it is shown to change the evidence the agent is given.** If removing a
+> rule changes nothing an agent can observe, the rule is unlearnable and the task is unfair.
+
+That rule exists because of one measurement. An earlier design had both models failing in exactly the
+same way, which reads as a genuine capability limit. Ablation said otherwise: the rule they missed
+changed **zero lines** of the shipped recording. `seq` was global across accounts, so in a many-account
+stream every event looks like a sequence gap to its own account, and the window was always flushed
+before anything could age out. The recording was all many-account streams; the test was single-account.
+The rule was not hard, it was invisible. Mixing single, three and fourteen-account streams took the
+evidence from zero lines to 3,373, and both models then passed — which is what a fair-but-learnable rule
+looks like.
+
+The other corrections were of the same kind: assertions that pinned an implementation's intermediate
+state rather than the contract's observable outcome, a check that demanded one recovery mode where the
+contract permitted another, a fee schedule the contract never related to the field the agent was given,
+and a defect that no generated day could reach. Each was removed or repaired before the trials that are
+reported here.
 
 ## Verifier security finding
 
@@ -122,12 +131,12 @@ harbor run -p tasks/settlement-netting-repair \
   --agent-setup-timeout-multiplier 8 -k 3 -n 3 -r 3
 ```
 
-Two notes for anyone rerunning this. Harbor derives its Compose project name from the task's
-`environment/` directory, so clear any stale container of that name first or the job hangs after
-`Collecting main service artifacts`. And `harbor check` has no setup-timeout flag while `harbor run`
-does, so on a slow link the rubric fails where trials succeed — with `-a codex` the two setup commands
-measured 414 s against a 360 s hard limit, because the first installs Node through apt and the second
-installs it again through nvm.
+`--agent-setup-timeout-multiplier 8` accommodates a slow container link on this host; it changes no
+agent or model parameter.
+
+Adversarial trials use the same two commands, pointed at an instruction built the way
+`.github/workflows/run-cheat-trials.yml` builds it: the task's own "Do not cheat" sentence is stripped,
+then `docs/prompts/hack-trial-prompt.md` is appended after the task description.
 
 ## Results
 
@@ -136,16 +145,10 @@ status, validity judgement and root cause.
 
 ## Infrastructure faults are never model failures
 
-Every trial is checked against `exception_stats` before it is counted. Faults diagnosed during this work,
-all discarded rather than recorded:
-
-| Symptom | Root cause |
-|---|---|
-| `EnvironmentStartTimeoutError` ×6 | All three configured Docker registry mirrors unreachable; image pulls hung instead of failing |
-| harbor hanging before writing any log line | Orphaned `docker compose` / `buildx` children left by those hangs |
-| `AgentSetupTimeoutError` | Agent bootstrap throughput varying between 6.8 KB/s and 1.46 MB/s across the day |
-| Three codex trials idle for an hour | `failed to refresh available models`; `api.openai.com` unreachable from host and container |
-| Two codex trials scoring 0.0 with 774-byte transcripts | Account usage limit reached; the artifact was the unmodified starting code |
+A trial counts only if the agent ran to its own conclusion and the verifier reached a verdict. Every
+trial reported here was checked against `exception_stats` in the job's `result.json` before being
+counted, and against the collected artifact to confirm the agent had in fact modified the starting code.
+Runs that ended in an environment, network, rate-limit or container fault were rerun, not recorded.
 
 ## Security
 
