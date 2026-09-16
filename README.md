@@ -22,8 +22,8 @@ layers, and the agent is told neither where they are nor how many there are.
 | Implementation rubric | `difficult`, `essential_difficulty`, `novel`, `interesting`, `agentic`, `anti_cheat_robustness`, `deterministic_reproducible`, `solvable`, `verifiable`, `test_instruction_alignment` all pass |
 | Claude Opus 5, standard trials ×3 | **0.0 / 0.0 / 0.0**, no exceptions |
 | Claude Opus 5, adversarial trial | **0.0** after thirty minutes under the red-team prompt |
-| Codex gpt-5.6-sol, standard trials ×3 | **0.0 / 0.0 / 0.0**, no exceptions |
-| Codex gpt-5.6-sol, adversarial trial | not obtainable - OpenAI's classifier rejects the official red-team prompt itself; proved by a control run where removing the prompt lets the same account run normally. See Results |
+| Codex gpt-5.6-sol, standard trials ×3 | **0.0 / 0.0 / 0.0**, no exceptions (a fourth run, `probe-normal-codex`, also scored 0.0) |
+| Codex gpt-5.6-sol, adversarial trial | not obtainable - OpenAI's classifier rejects the official red-team prompt itself. Control: removing only that prompt takes the same account from 963 bytes and zero commands to 96.7 KB, 36 commands and a completed verifier run. See Results |
 
 ### Why it is hard
 
