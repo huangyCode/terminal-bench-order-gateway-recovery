@@ -136,3 +136,21 @@ Note: reviewer prose still refers to 30 criteria; use the rubric file itself as 
 3. Start Docker Desktop or otherwise restore access to the Docker daemon before implementation validation.
 4. Install the repository-compatible Harbor release only after checking workflow/version pins.
 5. Do not run formal trials until the task revision is frozen and local validation is green.
+
+## Re-verification against upstream main (2026-09-16)
+
+Checked on the day of submission, because the assignment names the CI configuration and the red-team
+prompt as the source of truth and both could have moved since the baseline was frozen.
+
+| Item | Result |
+|---|---|
+| Upstream `main` HEAD | `e2995b93b0a46edee7bc9942ea5622411a6d5bb9` |
+| Frozen baseline in use | `e2995b93b0a46edee7bc9942ea5622411a6d5bb9` |
+| Drift | **none - upstream main is still the frozen commit** |
+| `docs/prompts/hack-trial-prompt.md` | md5 `70e2b62327eb9b07fb7958dda8c50a18`, 2755 bytes, byte-identical to the local copy |
+| `.github/harbor-run-defaults.yml` | no diff against the frozen commit |
+| `docs/prompts/` as a whole | no diff against the frozen commit |
+
+So the agent matrix, trial count, and the `/cheat` prompt used in this submission are the versions
+currently in force, not a stale snapshot. The adversarial trials prepend the official prompt verbatim;
+it was never edited to work around the provider-side classifier described in `RESULTS.md`.
