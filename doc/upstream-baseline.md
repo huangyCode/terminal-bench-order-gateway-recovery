@@ -8,8 +8,6 @@ Recorded: 2026-09-13 (Asia/Shanghai)
 - Frozen commit: `e2995b93b0a46edee7bc9942ea5622411a6d5bb9`
 - Commit timestamp: `2026-09-11T13:50:57-07:00`
 - Commit subject: `Fix archive/build-cython-ext planarity dependency drift (#1955)`
-- Local checkout: `/Users/grailor/Documents/Work/terminal-bench-3-interview-task/repository`
-- Checkout method: shallow clone with blob filtering (`--depth 1 --filter=blob:none`)
 
 ## Current CI trial defaults
 
@@ -94,8 +92,6 @@ The current implementation rubric contains 35 named criteria:
 34. do_not_modify_enforced
 35. binary_reward
 
-Note: reviewer prose still refers to 30 criteria; use the rubric file itself as source of truth and recount before final validation.
-
 ## Static checks present at baseline
 
 - `check-allow-internet.sh`
@@ -120,22 +116,6 @@ Note: reviewer prose still refers to 30 criteria; use the rubric file itself as 
 - `check-test-sh-sanity.sh`
 - `check-trial-network-fetch.sh`
 - `check-verifier-tooling-baked.sh`
-
-## Local environment status
-
-- Git: `2.54.0`
-- `uv`: installed at `/opt/homebrew/bin/uv`
-- Docker CLI: `29.5.3`
-- Docker daemon: unavailable at baseline (`permission denied` on the user Docker socket)
-- Harbor: not installed at baseline
-
-## Immediate blockers and next actions
-
-1. Select a domain aligned with the candidate's genuine expertise.
-2. Compare three task candidates against all existing task names and the proposal rubric.
-3. Start Docker Desktop or otherwise restore access to the Docker daemon before implementation validation.
-4. Install the repository-compatible Harbor release only after checking workflow/version pins.
-5. Do not run formal trials until the task revision is frozen and local validation is green.
 
 ## Re-verification against upstream main (2026-09-16)
 
